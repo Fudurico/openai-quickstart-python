@@ -1,21 +1,294 @@
 <!DOCTYPE html>
-<head>
-  <title>OpenAI Quickstart</title>
-  <link
-    rel="shortcut icon"
-    href="{{ url_for('static', filename='dog.png') }}"
-  />
-  <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}" />
-</head>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Project Time Tracker</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}" />
+  </head>
+  <body class="app-body">
+    <div class="app-wrapper">
+      <header class="app-header">
+        <div class="brand-block">
+          <h1>Project Time Tracker</h1>
+          <p>Log your focus time and understand how effort is invested across initiatives.</p>
+        </div>
+        {% if active_entry %}
+        <div class="status-pill">
+          <span class="status-dot"></span>
+          Running since {{ active_entry.start_display }}
+        </div>
+        {% endif %}
+      </header>
 
-<body>
-  <img src="{{ url_for('static', filename='dog.png') }}" class="icon" />
-  <h3>Name my pet</h3>
-  <form action="/" method="post">
-    <input type="text" name="animal" placeholder="Enter an animal" required />
-    <input type="submit" value="Generate names" />
-  </form>
-  {% if result %}
-  <div class="result">{{ result }}</div>
-  {% endif %}
-</body>
+      {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+      <div class="flash-stack">
+        {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% endwith %}
+
+      <main class="content-grid">
+        <section class="card emphasis">
+          <div class="card-header">
+            <h2>Track a session</h2>
+            <p>Start the timer to capture your work. When you stop, the entry is recorded in Excel automatically.</p>
+          </div>
+          {% if active_entry %}
+          <form method="post" class="tracking-form">
+            <input type="hidden" name="action" value="stop" />
+            <div class="chip-group">
+              <span class="chip">{{ active_entry.project }}</span>
+              <span class="chip secondary">{{ active_entry.activity }}</span>
+            </div>
+            <div class="timer-panel">
+              <span class="timer-label">Elapsed time</span>
+              <span class="live-timer" data-start="{{ active_entry.start_iso }}">00:00:00</span>
+            </div>
+            <label for="notes" class="field-label">Notes</label>
+            <textarea
+              id="notes"
+              name="notes"
+              rows="3"
+              placeholder="Add a short summary of the work completed"
+            >{{ active_entry.notes }}</textarea>
+            <button type="submit" class="btn stop">Stop &amp; log session</button>
+          </form>
+          {% else %}
+          <form method="post" class="tracking-form">
+            <input type="hidden" name="action" value="start" />
+            <div class="form-grid">
+              <label class="field-block">
+                <span class="field-label">Project</span>
+                <select id="project" name="project" {% if not projects %}disabled{% endif %}>
+                  <option value="">Select a project</option>
+                  {% for project in project_names %}
+                  <option value="{{ project }}">{{ project }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label class="field-block">
+                <span class="field-label">Activity</span>
+                <select id="activity" name="activity" data-selected="" disabled>
+                  <option value="">Select an activity</option>
+                </select>
+              </label>
+            </div>
+            <label for="notes" class="field-label">Notes (optional)</label>
+            <textarea
+              id="notes"
+              name="notes"
+              rows="3"
+              placeholder="Add a short summary of the work to be done"
+            ></textarea>
+            <button type="submit" class="btn start" {% if not projects %}disabled{% endif %}>
+              Start tracking
+            </button>
+            {% if not projects %}
+            <p class="form-hint">Add a project and activity below to enable time tracking.</p>
+            {% endif %}
+          </form>
+          {% endif %}
+        </section>
+
+        <section class="card slim">
+          <div class="card-header">
+            <h2>Projects &amp; activities</h2>
+            <p>Define the work you want to measure. Each activity belongs to a project.</p>
+          </div>
+          <form action="{{ url_for('add_project') }}" method="post" class="stacked-form">
+            <div class="mini-grid">
+              <input type="text" name="new_project" placeholder="Project name" required />
+              <input type="text" name="new_activity" placeholder="Activity name" required />
+            </div>
+            <button type="submit" class="btn ghost">Add activity</button>
+          </form>
+          <div class="project-list">
+            {% if projects %}
+            {% for project, activities in projects.items() %}
+            <div class="project-card">
+              <h3>{{ project }}</h3>
+              {% if activities %}
+              <ul>
+                {% for activity in activities %}
+                <li>{{ activity }}</li>
+                {% endfor %}
+              </ul>
+              {% else %}
+              <p class="empty-state">No activities yet.</p>
+              {% endif %}
+            </div>
+            {% endfor %}
+            {% else %}
+            <p class="empty-state">No projects yet. Use the form above to add your first one.</p>
+            {% endif %}
+          </div>
+        </section>
+
+        <section class="card wide">
+          <div class="card-header">
+            <h2>Time overview</h2>
+            <p>Review how your time is allocated by period, activity, and project.</p>
+          </div>
+          <div class="overview-grid">
+            <div class="overview-column">
+              <h3>By period</h3>
+              <div class="period-block">
+                <h4>Daily</h4>
+                <ul class="metric-list">
+                  {% for label, duration in summary.daily %}
+                  <li><span>{{ label }}</span><span>{{ duration }}</span></li>
+                  {% else %}
+                  <li class="empty">No tracked time yet.</li>
+                  {% endfor %}
+                </ul>
+              </div>
+              <div class="period-block">
+                <h4>Weekly</h4>
+                <ul class="metric-list">
+                  {% for label, duration in summary.weekly %}
+                  <li><span>{{ label }}</span><span>{{ duration }}</span></li>
+                  {% else %}
+                  <li class="empty">No tracked time yet.</li>
+                  {% endfor %}
+                </ul>
+              </div>
+              <div class="period-block">
+                <h4>Monthly</h4>
+                <ul class="metric-list">
+                  {% for label, duration in summary.monthly %}
+                  <li><span>{{ label }}</span><span>{{ duration }}</span></li>
+                  {% else %}
+                  <li class="empty">No tracked time yet.</li>
+                  {% endfor %}
+                </ul>
+              </div>
+              <div class="period-block">
+                <h4>Yearly</h4>
+                <ul class="metric-list">
+                  {% for label, duration in summary.yearly %}
+                  <li><span>{{ label }}</span><span>{{ duration }}</span></li>
+                  {% else %}
+                  <li class="empty">No tracked time yet.</li>
+                  {% endfor %}
+                </ul>
+              </div>
+            </div>
+            <div class="overview-column">
+              <h3>By activity</h3>
+              <ul class="metric-list">
+                {% for label, duration in summary.activities %}
+                <li><span>{{ label }}</span><span>{{ duration }}</span></li>
+                {% else %}
+                <li class="empty">No tracked time yet.</li>
+                {% endfor %}
+              </ul>
+            </div>
+            <div class="overview-column">
+              <h3>By project</h3>
+              <ul class="metric-list">
+                {% for label, duration in summary.projects %}
+                <li><span>{{ label }}</span><span>{{ duration }}</span></li>
+                {% else %}
+                <li class="empty">No tracked time yet.</li>
+                {% endfor %}
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="card wide">
+          <div class="card-header">
+            <h2>Recent log entries</h2>
+            <p>The latest sessions captured in your Excel log.</p>
+          </div>
+          <div class="table-wrapper">
+            <table class="log-table">
+              <thead>
+                <tr>
+                  <th scope="col">Date</th>
+                  <th scope="col">Project</th>
+                  <th scope="col">Activity</th>
+                  <th scope="col">Start</th>
+                  <th scope="col">End</th>
+                  <th scope="col">Duration</th>
+                  <th scope="col">Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in recent_logs %}
+                <tr>
+                  <td>{{ row.date }}</td>
+                  <td>{{ row.project }}</td>
+                  <td>{{ row.activity }}</td>
+                  <td>{{ row.start }}</td>
+                  <td>{{ row.end }}</td>
+                  <td>{{ row.duration }}</td>
+                  <td class="notes-cell">{{ row.notes }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="7" class="empty">No entries recorded yet.</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const projectActivities = {{ activities_json | safe }};
+      document.addEventListener('DOMContentLoaded', () => {
+        const projectSelect = document.getElementById('project');
+        const activitySelect = document.getElementById('activity');
+        if (projectSelect && activitySelect) {
+          const populateActivities = (project, selected) => {
+            const activities = projectActivities[project] || [];
+            activitySelect.innerHTML = '<option value="">Select an activity</option>';
+            if (!project || activities.length === 0) {
+              activitySelect.disabled = true;
+              return;
+            }
+            activitySelect.disabled = false;
+            activities.forEach((activity) => {
+              const option = document.createElement('option');
+              option.value = activity;
+              option.textContent = activity;
+              if (selected && selected === activity) {
+                option.selected = true;
+              }
+              activitySelect.appendChild(option);
+            });
+          };
+
+          projectSelect.addEventListener('change', (event) => {
+            populateActivities(event.target.value);
+          });
+
+          populateActivities(projectSelect.value, activitySelect.dataset.selected);
+        }
+
+        const timerEl = document.querySelector('.live-timer');
+        if (timerEl && timerEl.dataset.start) {
+          const startTime = new Date(timerEl.dataset.start);
+          const updateTimer = () => {
+            const now = new Date();
+            const diff = Math.max(0, now - startTime);
+            const totalSeconds = Math.floor(diff / 1000);
+            const hours = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
+            const minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
+            const seconds = String(totalSeconds % 60).padStart(2, '0');
+            timerEl.textContent = `${hours}:${minutes}:${seconds}`;
+          };
+          updateTimer();
+          setInterval(updateTimer, 1000);
+        }
+      });
+    </script>
+  </body>
+</html>
